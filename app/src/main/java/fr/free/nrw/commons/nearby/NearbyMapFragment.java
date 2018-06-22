@@ -119,6 +119,7 @@ public class NearbyMapFragment extends DaggerFragment {
     private final double CAMERA_TARGET_SHIFT_FACTOR_LANDSCAPE = 0.04;
 
     private final String CURRENT_LOCATION_LAYER_ID = "current_location_layer";
+    private final String CURRENT_LOCATION_MARKER_SOURCE_ID = "current_location_marker";
     private boolean useArrowMarker;
 
     private Bundle bundleForUpdtes;// Carry information from activity about changed nearby places and current location
@@ -266,7 +267,7 @@ public class NearbyMapFragment extends DaggerFragment {
             markerAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
                 @Override
                 public void onAnimationUpdate(ValueAnimator valueAnimator) {
-                    GeoJsonSource source = mapboxMap.getSourceAs("current_location_marker");
+                    GeoJsonSource source = mapboxMap.getSourceAs(CURRENT_LOCATION_MARKER_SOURCE_ID);
                     if (source != null) {
                         source.setGeoJson(Feature.fromGeometry(Point.fromCoordinates((Position) valueAnimator.getAnimatedValue())));
                     }
@@ -529,7 +530,7 @@ public class NearbyMapFragment extends DaggerFragment {
                 mapboxMap.addImage("current_location_icon", icon.getBitmap());
 
                 FeatureCollection emptySource = FeatureCollection.fromFeatures(new Feature[]{});
-                GeoJsonSource source = new GeoJsonSource("current_location_marker", emptySource);
+                GeoJsonSource source = new GeoJsonSource(CURRENT_LOCATION_MARKER_SOURCE_ID, emptySource);
 
                 if (currentLocationMarker != null) {
                     source.setGeoJson(currentLocationMarker);
@@ -544,7 +545,7 @@ public class NearbyMapFragment extends DaggerFragment {
                     if (layer instanceof SymbolLayer)
                         markerLayer = layer.getId();
                 }
-                currentLocationLayer = new SymbolLayer(CURRENT_LOCATION_LAYER_ID, "current_location_marker").withProperties(PropertyFactory.iconImage("current_location_icon"));
+                currentLocationLayer = new SymbolLayer(CURRENT_LOCATION_LAYER_ID, CURRENT_LOCATION_MARKER_SOURCE_ID).withProperties(PropertyFactory.iconImage("current_location_icon"));
                 mapboxMap.addLayerBelow(currentLocationLayer, markerLayer);
 
 
@@ -565,7 +566,7 @@ public class NearbyMapFragment extends DaggerFragment {
      */
     private void addCurrentLocationMarker(MapboxMap mapboxMap) {
 
-        GeoJsonSource source = mapboxMap.getSourceAs("current_location_marker");
+        GeoJsonSource source = mapboxMap.getSourceAs(CURRENT_LOCATION_MARKER_SOURCE_ID);
         currentLocationMarker = Feature.fromGeometry(Point.fromCoordinates(Position.fromLngLat(curLatLng.getLongitude(), curLatLng.getLatitude())));
         if (source != null) {
             source.setGeoJson(currentLocationMarker);
