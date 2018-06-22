@@ -350,7 +350,6 @@ public class NearbyMapFragment extends DaggerFragment {
                     .newCameraPosition(position), 1000);
         }
     }
-
     /**
      * set rotation of position marker icon on current position SymbolLayer to azimuth
      * note: this sets rotation to all icons on said SymbolLayer, if you add more icons all will be rotated
