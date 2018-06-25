@@ -29,11 +29,13 @@ import android.widget.TextView;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
+import com.mapbox.geojson.Feature;
+import com.mapbox.geojson.FeatureCollection;
+import com.mapbox.geojson.Point;
 import com.mapbox.mapboxsdk.Mapbox;
 import com.mapbox.mapboxsdk.annotations.Icon;
 import com.mapbox.mapboxsdk.annotations.IconFactory;
 import com.mapbox.mapboxsdk.annotations.Marker;
-import com.mapbox.mapboxsdk.annotations.MarkerOptions;
 import com.mapbox.mapboxsdk.annotations.PolygonOptions;
 import com.mapbox.mapboxsdk.camera.CameraPosition;
 import com.mapbox.mapboxsdk.camera.CameraUpdateFactory;
@@ -43,7 +45,11 @@ import com.mapbox.mapboxsdk.maps.MapView;
 import com.mapbox.mapboxsdk.maps.MapboxMap;
 import com.mapbox.mapboxsdk.maps.MapboxMapOptions;
 import com.mapbox.mapboxsdk.maps.OnMapReadyCallback;
-import com.mapbox.services.android.telemetry.MapboxTelemetry;
+import com.mapbox.mapboxsdk.maps.Telemetry;
+import com.mapbox.mapboxsdk.style.layers.Layer;
+import com.mapbox.mapboxsdk.style.layers.PropertyFactory;
+import com.mapbox.mapboxsdk.style.layers.SymbolLayer;
+import com.mapbox.mapboxsdk.style.sources.GeoJsonSource;
 
 import java.lang.reflect.Type;
 import java.util.ArrayList;
@@ -105,7 +111,7 @@ public class NearbyMapFragment extends DaggerFragment {
 
     private Place place;
     private Marker selected;
-    private Marker currentLocationMarker;
+    private Feature currentLocationMarker;
     private MapboxMap mapboxMap;
     private PolygonOptions currentLocationPolygonOptions;
 
@@ -113,9 +119,15 @@ public class NearbyMapFragment extends DaggerFragment {
     private final double CAMERA_TARGET_SHIFT_FACTOR_PORTRAIT = 0.06;
     private final double CAMERA_TARGET_SHIFT_FACTOR_LANDSCAPE = 0.04;
 
+
     private boolean isSecondMaterialShowcaseDismissed;
     private boolean isMapReady;
     private MaterialShowcaseView thirdSingleShowCaseView;
+
+    private final String CURRENT_LOCATION_LAYER_ID = "current_location_layer";
+    private final String CURRENT_LOCATION_MARKER_SOURCE_ID = "current_location_marker";
+    private boolean useArrowMarker;
+
 
     private Bundle bundleForUpdtes;// Carry information from activity about changed nearby places and current location
 
@@ -157,11 +169,12 @@ public class NearbyMapFragment extends DaggerFragment {
                             placeList,
                             getActivity());
             boundaryCoordinates = gson.fromJson(gsonBoundaryCoordinates, gsonBoundaryCoordinatesType);
+            useArrowMarker = bundle.getBoolean("useArrowMarker", false);
         }
         if (curLatLng != null) {
             Mapbox.getInstance(getActivity(),
                     getString(R.string.mapbox_commons_app_token));
-            MapboxTelemetry.getInstance().setTelemetryEnabled(false);
+            Telemetry.disableOnUserRequest();
         }
         setRetainInstance(true);
     }
@@ -250,10 +263,23 @@ public class NearbyMapFragment extends DaggerFragment {
     private void updateMapToTrackPosition() {
 
         if (currentLocationMarker != null) {
+            Point curMapBoxPosition = Point.fromLngLat(curLatLng.getLongitude(), curLatLng.getLatitude());
             LatLng curMapBoxLatLng = new LatLng(curLatLng.getLatitude(),curLatLng.getLongitude());
-            ValueAnimator markerAnimator = ObjectAnimator.ofObject(currentLocationMarker, "position",
-                    new LatLngEvaluator(), currentLocationMarker.getPosition(),
-                    curMapBoxLatLng);
+            ValueAnimator markerAnimator = ObjectAnimator.ofObject(currentLocationMarker, "geometry",
+                    new PointEvaluator(), ((Point)currentLocationMarker.geometry()),
+                    curMapBoxPosition);
+
+
+            markerAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+                @Override
+                public void onAnimationUpdate(ValueAnimator valueAnimator) {
+                    GeoJsonSource source = mapboxMap.getSourceAs(CURRENT_LOCATION_MARKER_SOURCE_ID);
+                    if (source != null) {
+                        Point point = (Point) valueAnimator.getAnimatedValue();
+                        source.setGeoJson(point);
+                    }
+                }
+            });
             markerAnimator.setDuration(1000);
             markerAnimator.start();
 
@@ -330,6 +356,21 @@ public class NearbyMapFragment extends DaggerFragment {
             }
             mapboxMap.animateCamera(CameraUpdateFactory
                     .newCameraPosition(position), 1000);
+        }
+    }
+    /**
+     * set rotation of position marker icon on current position SymbolLayer to azimuth
+     * note: this sets rotation to all icons on said SymbolLayer, if you add more icons all will be rotated
+     * @param azimuth in degrees
+     */
+    public void updateMarkerBearing(Float azimuth) {
+        if (azimuth == null || mapboxMap == null) {
+            return;
+        }
+
+        SymbolLayer layer = (SymbolLayer) mapboxMap.getLayer(CURRENT_LOCATION_LAYER_ID);
+        if (layer != null) {
+            layer.setProperties(PropertyFactory.iconRotate(azimuth));
         }
     }
 
@@ -484,6 +525,38 @@ public class NearbyMapFragment extends DaggerFragment {
                 ((NearbyActivity)getActivity()).setMapViewTutorialShowCase();
                 NearbyMapFragment.this.mapboxMap = mapboxMap;
                 updateMapSignificantly();
+
+                Layer currentLocationLayer = mapboxMap.getLayer(CURRENT_LOCATION_LAYER_ID);
+
+                Icon icon;
+                if (useArrowMarker) {
+                    icon = IconFactory.getInstance(getContext()).fromResource(R.drawable.current_location_marker_arrow);
+                } else {
+                    icon = IconFactory.getInstance(getContext()).fromResource(R.drawable.current_location_marker);
+                }
+
+                mapboxMap.addImage("current_location_icon", icon.getBitmap());
+
+                FeatureCollection emptySource = FeatureCollection.fromFeatures(new Feature[]{});
+                GeoJsonSource source = new GeoJsonSource(CURRENT_LOCATION_MARKER_SOURCE_ID, emptySource);
+
+                if (currentLocationMarker != null) {
+                    source.setGeoJson(currentLocationMarker);
+                }
+
+                mapboxMap.addSource(source);
+
+                // add current marker layer below other markers
+                List<Layer> layers = mapboxMap.getLayers();
+                String markerLayer = null;
+                for (Layer layer : layers) {
+                    if (layer instanceof SymbolLayer)
+                        markerLayer = layer.getId();
+                }
+                currentLocationLayer = new SymbolLayer(CURRENT_LOCATION_LAYER_ID, CURRENT_LOCATION_MARKER_SOURCE_ID).withProperties(PropertyFactory.iconImage("current_location_icon"));
+                mapboxMap.addLayer(currentLocationLayer);
+
+
             }
         });
         mapView.setStyleUrl("asset://mapstyle.json");
@@ -500,17 +573,12 @@ public class NearbyMapFragment extends DaggerFragment {
      * move.
      */
     private void addCurrentLocationMarker(MapboxMap mapboxMap) {
-        if (currentLocationMarker != null) {
-            currentLocationMarker.remove(); // Remove previous marker, we are not Hansel and Gretel
+
+        GeoJsonSource source = mapboxMap.getSourceAs(CURRENT_LOCATION_MARKER_SOURCE_ID);
+        currentLocationMarker = Feature.fromGeometry(Point.fromLngLat(curLatLng.getLongitude(), curLatLng.getLatitude()));
+        if (source != null) {
+            source.setGeoJson(currentLocationMarker);
         }
-
-        Icon icon = IconFactory.getInstance(getContext()).fromResource(R.drawable.current_location_marker);
-
-        MarkerOptions currentLocationMarkerOptions = new MarkerOptions()
-                .position(new LatLng(curLatLng.getLatitude(), curLatLng.getLongitude()));
-        currentLocationMarkerOptions.setIcon(icon); // Set custom icon
-
-        currentLocationMarker = mapboxMap.addMarker(currentLocationMarkerOptions);
 
         List<LatLng> circle = createCircleArray(curLatLng.getLatitude(), curLatLng.getLongitude(),
                 curLatLng.getAccuracy() * 2, 100);
@@ -868,17 +936,16 @@ public class NearbyMapFragment extends DaggerFragment {
         super.onDestroyView();
     }
 
-    private static class LatLngEvaluator implements TypeEvaluator<LatLng> {
+    private static class PointEvaluator implements TypeEvaluator<Point> {
         // Method is used to interpolate the marker animation.
-        private LatLng latLng = new LatLng();
 
         @Override
-        public LatLng evaluate(float fraction, LatLng startValue, LatLng endValue) {
-            latLng.setLatitude(startValue.getLatitude()
-                    + ((endValue.getLatitude() - startValue.getLatitude()) * fraction));
-            latLng.setLongitude(startValue.getLongitude()
-                    + ((endValue.getLongitude() - startValue.getLongitude()) * fraction));
-            return latLng;
+        public Point evaluate(float fraction, Point startValue, Point endValue) {
+            double newLatitude = (startValue.latitude()
+                    + ((endValue.latitude() - startValue.latitude()) * fraction));
+            double newLongitude = (startValue.longitude()
+                    + ((endValue.longitude() - startValue.longitude()) * fraction));
+            return Point.fromLngLat(newLongitude, newLatitude);
         }
     }
 }
