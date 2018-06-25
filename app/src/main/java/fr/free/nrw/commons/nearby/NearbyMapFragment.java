@@ -29,6 +29,7 @@ import android.widget.TextView;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
+import com.mapbox.android.telemetry.MapboxTelemetry;
 import com.mapbox.geojson.Feature;
 import com.mapbox.geojson.FeatureCollection;
 import com.mapbox.geojson.Point;
@@ -548,13 +549,13 @@ public class NearbyMapFragment extends DaggerFragment {
 
                 // add current marker layer below other markers
                 List<Layer> layers = mapboxMap.getLayers();
-                String markerLayer = null;
+                String markerLayerId = null;
                 for (Layer layer : layers) {
                     if (layer instanceof SymbolLayer)
-                        markerLayer = layer.getId();
+                        markerLayerId = layer.getId();
                 }
                 currentLocationLayer = new SymbolLayer(CURRENT_LOCATION_LAYER_ID, CURRENT_LOCATION_MARKER_SOURCE_ID).withProperties(PropertyFactory.iconImage("current_location_icon"));
-                mapboxMap.addLayer(currentLocationLayer);
+                mapboxMap.addLayerBelow(currentLocationLayer, markerLayerId);
 
 
             }
